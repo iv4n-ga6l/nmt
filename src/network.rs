@@ -1,121 +1,49 @@
-use std::collections::{HashMap, BinaryHeap};
-use std::cmp::Ordering;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
-
-#[derive(Debug, PartialEq, Eq)]
-struct State {
-    cost: u32,
-    node: String,
-}
-
-impl Ord for State {
-    fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse the order to make BinaryHeap a min-heap
-        other.cost.cmp(&self.cost)
-    }
-}
-
-impl PartialOrd for State {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
+use std::collections::{HashMap};
 
 impl Network {
-    /// Finds the shortest path between two nodes using Dijkstra's algorithm.
-    /// Returns the total weight of the shortest path and the sequence of nodes in the path.
-    pub fn shortest_path(&self, start: &str, end: &str) -> Option<(u32, Vec<String>)> {
-        let mut distances: HashMap<String, u32> = HashMap::new();
-        let mut predecessors: HashMap<String, String> = HashMap::new();
-        let mut heap = BinaryHeap::new();
+    /// Applies traffic flow to the network by routing each traffic demand along the shortest path.
+    /// Calculates the capacity used on each link and generates a report.
+    pub fn apply_traffic_flow(&self) -> HashMap<(String, String), u32> {
+        let mut link_usage: HashMap<(String, String), u32> = HashMap::new();
 
-        // Initialize distances to all nodes as infinity, except the start node
-        for node in self.adjacency_list.keys() {
-            distances.insert(node.clone(), u32::MAX);
-        }
-        distances.insert(start.to_string(), 0);
-
-        // Push the start node into the heap
-        heap.push(State {
-            cost: 0,
-            node: start.to_string(),
-        });
-
-        while let Some(State { cost, node }) = heap.pop() {
-            // If we've reached the target node, stop
-            if node == end {
-                let mut path = Vec::new();
-                let mut current = end.to_string();
-
-                while let Some(predecessor) = predecessors.get(&current) {
-                    path.push(current.clone());
-                    current = predecessor.clone();
+        for (node, &(ingress, egress)) in &self.traffic_data {
+            if let Some((_, path)) = self.shortest_path("source", node) {
+                // Add ingress traffic to the path
+                for window in path.windows(2) {
+                    if let [from, to] = window {
+                        let link = (from.clone(), to.clone());
+                        *link_usage.entry(link).or_insert(0) += ingress;
+                    }
                 }
-                path.push(start.to_string());
-                path.reverse();
-
-                return Some((cost, path));
             }
 
-            // Skip if the cost is greater than the recorded distance
-            if cost > *distances.get(&node).unwrap_or(&u32::MAX) {
-                continue;
-            }
-
-            // Explore neighbors
-            if let Some(neighbors) = self.adjacency_list.get(&node) {
-                for (neighbor, weight) in neighbors {
-                    let next = State {
-                        cost: cost + weight,
-                        node: neighbor.clone(),
-                    };
-
-                    if next.cost < *distances.get(&neighbor).unwrap_or(&u32::MAX) {
-                        // Update the distance and predecessor
-                        distances.insert(neighbor.clone(), next.cost);
-                        predecessors.insert(neighbor.clone(), node.clone());
-
-                        // Push the neighbor into the heap
-                        heap.push(next);
+            if let Some((_, path)) = self.shortest_path(node, "sink") {
+                // Add egress traffic to the path
+                for window in path.windows(2) {
+                    if let [from, to] = window {
+                        let link = (from.clone(), to.clone());
+                        *link_usage.entry(link).or_insert(0) += egress;
                     }
                 }
             }
         }
 
-        // If we reach here, there's no path from start to end
-        None
+        link_usage
     }
 
-    /// Loads traffic data from a file into the network.
-    /// The file should contain lines in the format: "<node> <ingress> <egress>".
-    pub fn load_traffic_data<P: AsRef<Path>>(&mut self, file_path: P) -> io::Result<()> {
-        let file = File::open(file_path)?;
-        let reader = io::BufReader::new(file);
+    /// Generates a report of the traffic flow, detailing the route of each traffic demand
+    /// and the total demand for each link.
+    pub fn generate_traffic_report(&self, link_usage: &HashMap<(String, String), u32>) -> String {
+        let mut report = String::new();
 
-        for line in reader.lines() {
-            let line = line?;
-            let parts: Vec<&str> = line.split_whitespace().collect();
-
-            if parts.len() != 3 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid line format: {}", line),
-                ));
-            }
-
-            let node = parts[0].to_string();
-            let ingress: u32 = parts[1].parse().map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid ingress value: {}", parts[1]))
-            })?;
-            let egress: u32 = parts[2].parse().map_err(|_| {
-                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid egress value: {}", parts[2]))
-            })?;
-
-            self.traffic_data.insert(node, (ingress, egress));
+        report.push_str("Traffic Flow Report:\n\n");
+        for (link, usage) in link_usage {
+            report.push_str(&format!(
+                "Link {:?} -> {:?}: {} units\n",
+                link.0, link.1, usage
+            ));
         }
 
-        Ok(())
+        report
     }
 }
