@@ -1,81 +1,87 @@
-use std::collections::HashMap;
-use std::fs::File;
-use std::io::{self, BufRead};
-use std::path::Path;
+use std::collections::{HashMap, BinaryHeap};
+use std::cmp::Ordering;
 
-#[derive(Debug, PartialEq)]
-pub struct Link {
-    pub node_a: String,
-    pub node_b: String,
-    pub capacity: u32,
+#[derive(Debug, PartialEq, Eq)]
+struct State {
+    cost: u32,
+    node: String,
 }
 
-#[derive(Debug)]
-pub struct Network {
-    pub links: Vec<Link>,
-    pub adjacency_list: HashMap<String, Vec<(String, u32)>>,
+impl Ord for State {
+    fn cmp(&self, other: &Self) -> Ordering {
+        // Reverse the order to make BinaryHeap a min-heap
+        other.cost.cmp(&self.cost)
+    }
+}
+
+impl PartialOrd for State {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 impl Network {
-    /// Creates a new, empty Network.
-    pub fn new() -> Self {
-        Network {
-            links: Vec::new(),
-            adjacency_list: HashMap::new(),
+    /// Finds the shortest path between two nodes using Dijkstra's algorithm.
+    /// Returns the total weight of the shortest path and the sequence of nodes in the path.
+    pub fn shortest_path(&self, start: &str, end: &str) -> Option<(u32, Vec<String>)> {
+        let mut distances: HashMap<String, u32> = HashMap::new();
+        let mut predecessors: HashMap<String, String> = HashMap::new();
+        let mut heap = BinaryHeap::new();
+
+        // Initialize distances to all nodes as infinity, except the start node
+        for node in self.adjacency_list.keys() {
+            distances.insert(node.clone(), u32::MAX);
         }
-    }
+        distances.insert(start.to_string(), 0);
 
-    /// Loads a network from a CSV file.
-    pub fn from_csv<P: AsRef<Path>>(path: P) -> Result<Self, io::Error> {
-        let file = File::open(path)?;
-        let reader = io::BufReader::new(file);
+        // Push the start node into the heap
+        heap.push(State {
+            cost: 0,
+            node: start.to_string(),
+        });
 
-        let mut network = Network::new();
+        while let Some(State { cost, node }) = heap.pop() {
+            // If we've reached the target node, stop
+            if node == end {
+                let mut path = Vec::new();
+                let mut current = end.to_string();
 
-        for (index, line) in reader.lines().enumerate() {
-            let line = line?;
-            let parts: Vec<&str> = line.split(',').map(|s| s.trim()).collect();
+                while let Some(predecessor) = predecessors.get(&current) {
+                    path.push(current.clone());
+                    current = predecessor.clone();
+                }
+                path.push(start.to_string());
+                path.reverse();
 
-            if parts.len() != 3 {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid format on line {}: {}", index + 1, line),
-                ));
+                return Some((cost, path));
             }
 
-            let node_a = parts[0].to_string();
-            let node_b = parts[1].to_string();
-            let capacity: u32 = parts[2].parse().map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    format!("Invalid capacity on line {}: {}", index + 1, parts[2]),
-                )
-            })?;
+            // Skip if the cost is greater than the recorded distance
+            if cost > *distances.get(&node).unwrap_or(&u32::MAX) {
+                continue;
+            }
 
-            network.add_link(node_a, node_b, capacity);
+            // Explore neighbors
+            if let Some(neighbors) = self.adjacency_list.get(&node) {
+                for (neighbor, weight) in neighbors {
+                    let next = State {
+                        cost: cost + weight,
+                        node: neighbor.clone(),
+                    };
+
+                    if next.cost < *distances.get(&neighbor).unwrap_or(&u32::MAX) {
+                        // Update the distance and predecessor
+                        distances.insert(neighbor.clone(), next.cost);
+                        predecessors.insert(neighbor.clone(), node.clone());
+
+                        // Push the neighbor into the heap
+                        heap.push(next);
+                    }
+                }
+            }
         }
 
-        Ok(network)
-    }
-
-    /// Adds a link to the network.
-    pub fn add_link(&mut self, node_a: String, node_b: String, capacity: u32) {
-        let link = Link {
-            node_a: node_a.clone(),
-            node_b: node_b.clone(),
-            capacity,
-        };
-
-        self.links.push(link);
-
-        self.adjacency_list
-            .entry(node_a.clone())
-            .or_insert_with(Vec::new)
-            .push((node_b.clone(), capacity));
-
-        self.adjacency_list
-            .entry(node_b)
-            .or_insert_with(Vec::new)
-            .push((node_a, capacity));
+        // If we reach here, there's no path from start to end
+        None
     }
 }
