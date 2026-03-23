@@ -1,49 +1,55 @@
 use std::collections::{HashMap};
 
 impl Network {
-    /// Applies traffic flow to the network by routing each traffic demand along the shortest path.
-    /// Calculates the capacity used on each link and generates a report.
-    pub fn apply_traffic_flow(&self) -> HashMap<(String, String), u32> {
-        let mut link_usage: HashMap<(String, String), u32> = HashMap::new();
+    /// Analyzes the Worst Case Failure (WCF) for the network.
+    /// Simulates the removal of each link, applies traffic demands, and evaluates the impact.
+    /// Returns the link whose failure results in the worst-case scenario.
+    pub fn analyze_worst_case_failure(&self) -> Option<((String, String), usize, usize, f64)> {
+        let mut worst_case: Option<((String, String), usize, usize, f64)> = None;
 
-        for (node, &(ingress, egress)) in &self.traffic_data {
-            if let Some((_, path)) = self.shortest_path("source", node) {
-                // Add ingress traffic to the path
-                for window in path.windows(2) {
-                    if let [from, to] = window {
-                        let link = (from.clone(), to.clone());
-                        *link_usage.entry(link).or_insert(0) += ingress;
+        for link in self.links.keys() {
+            // Clone the network and remove the current link
+            let mut simulated_network = self.clone();
+            simulated_network.links.remove(link);
+
+            // Apply traffic flow to the modified network
+            let link_usage = simulated_network.apply_traffic_flow();
+
+            // Calculate metrics for the current failure scenario
+            let mut unroutable_traffic = 0;
+            let mut links_over_capacity = 0;
+            let mut max_capacity_ratio = 0.0;
+
+            for ((from, to), &usage) in &link_usage {
+                if let Some(&capacity) = self.links.get(&(from.clone(), to.clone())) {
+                    if usage > capacity {
+                        links_over_capacity += 1;
                     }
+                    let capacity_ratio = usage as f64 / capacity as f64;
+                    if capacity_ratio > max_capacity_ratio {
+                        max_capacity_ratio = capacity_ratio;
+                    }
+                } else {
+                    unroutable_traffic += usage;
                 }
             }
 
-            if let Some((_, path)) = self.shortest_path(node, "sink") {
-                // Add egress traffic to the path
-                for window in path.windows(2) {
-                    if let [from, to] = window {
-                        let link = (from.clone(), to.clone());
-                        *link_usage.entry(link).or_insert(0) += egress;
+            // Update the worst-case scenario if this one is worse
+            match &worst_case {
+                Some((_, worst_unroutable, worst_over_capacity, worst_ratio)) => {
+                    if unroutable_traffic > *worst_unroutable
+                        || (unroutable_traffic == *worst_unroutable && links_over_capacity > *worst_over_capacity)
+                        || (unroutable_traffic == *worst_unroutable && links_over_capacity == *worst_over_capacity && max_capacity_ratio > *worst_ratio)
+                    {
+                        worst_case = Some((link.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
                     }
+                }
+                None => {
+                    worst_case = Some((link.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
                 }
             }
         }
 
-        link_usage
-    }
-
-    /// Generates a report of the traffic flow, detailing the route of each traffic demand
-    /// and the total demand for each link.
-    pub fn generate_traffic_report(&self, link_usage: &HashMap<(String, String), u32>) -> String {
-        let mut report = String::new();
-
-        report.push_str("Traffic Flow Report:\n\n");
-        for (link, usage) in link_usage {
-            report.push_str(&format!(
-                "Link {:?} -> {:?}: {} units\n",
-                link.0, link.1, usage
-            ));
-        }
-
-        report
+        worst_case
     }
 }
