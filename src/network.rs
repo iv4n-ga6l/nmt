@@ -1,16 +1,22 @@
 use std::collections::{HashMap};
+use itertools::Itertools; // For generating combinations
 
 impl Network {
     /// Analyzes the Worst Case Failure (WCF) for the network.
-    /// Simulates the removal of each link, applies traffic demands, and evaluates the impact.
-    /// Returns the link whose failure results in the worst-case scenario.
-    pub fn analyze_worst_case_failure(&self) -> Option<((String, String), usize, usize, f64)> {
-        let mut worst_case: Option<((String, String), usize, usize, f64)> = None;
+    /// Simulates the removal of up to `max_failures` links, applies traffic demands, and evaluates the impact.
+    /// Returns the combination of links whose failure results in the worst-case scenario.
+    pub fn analyze_worst_case_failure(&self, max_failures: usize) -> Option<(Vec<(String, String)>, usize, usize, f64)> {
+        let mut worst_case: Option<(Vec<(String, String)>, usize, usize, f64)> = None;
 
-        for link in self.links.keys() {
-            // Clone the network and remove the current link
+        // Generate all combinations of link failures up to `max_failures`
+        let link_combinations = self.links.keys().cloned().combinations(max_failures);
+
+        for combination in link_combinations {
+            // Clone the network and remove the current combination of links
             let mut simulated_network = self.clone();
-            simulated_network.links.remove(link);
+            for link in &combination {
+                simulated_network.links.remove(link);
+            }
 
             // Apply traffic flow to the modified network
             let link_usage = simulated_network.apply_traffic_flow();
@@ -41,11 +47,11 @@ impl Network {
                         || (unroutable_traffic == *worst_unroutable && links_over_capacity > *worst_over_capacity)
                         || (unroutable_traffic == *worst_unroutable && links_over_capacity == *worst_over_capacity && max_capacity_ratio > *worst_ratio)
                     {
-                        worst_case = Some((link.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
+                        worst_case = Some((combination.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
                     }
                 }
                 None => {
-                    worst_case = Some((link.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
+                    worst_case = Some((combination.clone(), unroutable_traffic, links_over_capacity, max_capacity_ratio));
                 }
             }
         }
