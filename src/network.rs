@@ -1,5 +1,8 @@
 use std::collections::{HashMap, BinaryHeap};
 use std::cmp::Ordering;
+use std::fs::File;
+use std::io::{self, BufRead};
+use std::path::Path;
 
 #[derive(Debug, PartialEq, Eq)]
 struct State {
@@ -83,5 +86,36 @@ impl Network {
 
         // If we reach here, there's no path from start to end
         None
+    }
+
+    /// Loads traffic data from a file into the network.
+    /// The file should contain lines in the format: "<node> <ingress> <egress>".
+    pub fn load_traffic_data<P: AsRef<Path>>(&mut self, file_path: P) -> io::Result<()> {
+        let file = File::open(file_path)?;
+        let reader = io::BufReader::new(file);
+
+        for line in reader.lines() {
+            let line = line?;
+            let parts: Vec<&str> = line.split_whitespace().collect();
+
+            if parts.len() != 3 {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    format!("Invalid line format: {}", line),
+                ));
+            }
+
+            let node = parts[0].to_string();
+            let ingress: u32 = parts[1].parse().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid ingress value: {}", parts[1]))
+            })?;
+            let egress: u32 = parts[2].parse().map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidData, format!("Invalid egress value: {}", parts[2]))
+            })?;
+
+            self.traffic_data.insert(node, (ingress, egress));
+        }
+
+        Ok(())
     }
 }
