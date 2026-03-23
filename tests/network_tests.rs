@@ -1,40 +1,55 @@
 use nmt::network::{Network};
-use std::io::Write;
-use tempfile::NamedTempFile;
+use std::collections::HashMap;
 
 #[test]
-fn test_load_traffic_data() {
+fn test_apply_traffic_flow() {
     let mut network = Network::new();
 
-    // Create a temporary file with traffic data
-    let mut temp_file = NamedTempFile::new().unwrap();
-    writeln!(
-        temp_file,
-        "A 100 200\nB 150 250\nC 200 300\nD 50 75"
-    )
-    .unwrap();
+    // Define a simple network
+    network.add_link("source", "A", 10);
+    network.add_link("A", "B", 5);
+    network.add_link("B", "sink", 10);
+    network.add_link("A", "sink", 15);
 
-    // Load traffic data from the file
-    network.load_traffic_data(temp_file.path()).unwrap();
+    // Define traffic data
+    network.traffic_data.insert("A".to_string(), (5, 10));
+    network.traffic_data.insert("B".to_string(), (10, 5));
 
-    // Verify the loaded traffic data
-    assert_eq!(network.traffic_data.get("A"), Some(&(100, 200)));
-    assert_eq!(network.traffic_data.get("B"), Some(&(150, 250)));
-    assert_eq!(network.traffic_data.get("C"), Some(&(200, 300)));
-    assert_eq!(network.traffic_data.get("D"), Some(&(50, 75)));
+    // Apply traffic flow
+    let link_usage = network.apply_traffic_flow();
+
+    // Expected link usage
+    let mut expected_usage = HashMap::new();
+    expected_usage.insert(("source".to_string(), "A".to_string()), 5); // Ingress to A
+    expected_usage.insert(("A".to_string(), "B".to_string()), 10);    // Ingress to B
+    expected_usage.insert(("B".to_string(), "sink".to_string()), 15); // Egress from B
+    expected_usage.insert(("A".to_string(), "sink".to_string()), 10); // Egress from A
+
+    assert_eq!(link_usage, expected_usage);
 }
 
 #[test]
-fn test_load_traffic_data_invalid_format() {
+fn test_generate_traffic_report() {
     let mut network = Network::new();
 
-    // Create a temporary file with invalid traffic data
-    let mut temp_file = NamedTempFile::new().unwrap();
-    writeln!(temp_file, "A 100").unwrap(); // Missing egress value
+    // Define a simple network
+    network.add_link("source", "A", 10);
+    network.add_link("A", "B", 5);
+    network.add_link("B", "sink", 10);
+    network.add_link("A", "sink", 15);
 
-    // Attempt to load traffic data from the file
-    let result = network.load_traffic_data(temp_file.path());
+    // Define traffic data
+    network.traffic_data.insert("A".to_string(), (5, 10));
+    network.traffic_data.insert("B".to_string(), (10, 5));
 
-    // Verify that an error is returned
-    assert!(result.is_err());
+    // Apply traffic flow
+    let link_usage = network.apply_traffic_flow();
+
+    // Generate report
+    let report = network.generate_traffic_report(&link_usage);
+
+    // Expected report
+    let expected_report = "Traffic Flow Report:\n\nLink \"source\" -> \"A\": 5 units\nLink \"A\" -> \"B\": 10 units\nLink \"B\" -> \"sink\": 15 units\nLink \"A\" -> \"sink\": 10 units\n";
+
+    assert_eq!(report, expected_report);
 }
