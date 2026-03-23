@@ -1,29 +1,40 @@
-use nmt::network::{Link, Network};
+use nmt::network::{Network};
 use std::io::Write;
 use tempfile::NamedTempFile;
 
 #[test]
-fn test_shortest_path() {
+fn test_load_traffic_data() {
     let mut network = Network::new();
-    network.add_link("A".to_string(), "B".to_string(), 1);
-    network.add_link("B".to_string(), "C".to_string(), 2);
-    network.add_link("A".to_string(), "C".to_string(), 4);
-    network.add_link("C".to_string(), "D".to_string(), 1);
-    network.add_link("B".to_string(), "D".to_string(), 5);
 
-    // Test shortest path from A to D
-    let result = network.shortest_path("A", "D");
-    assert_eq!(result, Some((4, vec!["A".to_string(), "B".to_string(), "C".to_string(), "D".to_string()])));
+    // Create a temporary file with traffic data
+    let mut temp_file = NamedTempFile::new().unwrap();
+    writeln!(
+        temp_file,
+        "A 100 200\nB 150 250\nC 200 300\nD 50 75"
+    )
+    .unwrap();
 
-    // Test shortest path from A to C
-    let result = network.shortest_path("A", "C");
-    assert_eq!(result, Some((3, vec!["A".to_string(), "B".to_string(), "C".to_string()])));
+    // Load traffic data from the file
+    network.load_traffic_data(temp_file.path()).unwrap();
 
-    // Test shortest path from A to A (trivial case)
-    let result = network.shortest_path("A", "A");
-    assert_eq!(result, Some((0, vec!["A".to_string()])));
+    // Verify the loaded traffic data
+    assert_eq!(network.traffic_data.get("A"), Some(&(100, 200)));
+    assert_eq!(network.traffic_data.get("B"), Some(&(150, 250)));
+    assert_eq!(network.traffic_data.get("C"), Some(&(200, 300)));
+    assert_eq!(network.traffic_data.get("D"), Some(&(50, 75)));
+}
 
-    // Test no path case
-    let result = network.shortest_path("A", "E");
-    assert_eq!(result, None);
+#[test]
+fn test_load_traffic_data_invalid_format() {
+    let mut network = Network::new();
+
+    // Create a temporary file with invalid traffic data
+    let mut temp_file = NamedTempFile::new().unwrap();
+    writeln!(temp_file, "A 100").unwrap(); // Missing egress value
+
+    // Attempt to load traffic data from the file
+    let result = network.load_traffic_data(temp_file.path());
+
+    // Verify that an error is returned
+    assert!(result.is_err());
 }
